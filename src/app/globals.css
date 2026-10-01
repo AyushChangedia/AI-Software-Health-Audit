@@ -1,0 +1,249 @@
+@import 'tailwindcss';
+
+/* ==================================================================
+   Sentinel design tokens
+   Dark-first. Colour is reserved for state, never decoration.
+   ================================================================== */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, 'SFMono-Regular', 'JetBrains Mono', monospace;
+
+  /* Surfaces --------------------------------------------------- */
+  --color-canvas: #08090b;
+  --color-surface: #0c0e11;
+  --color-panel: #111317;
+  --color-raised: #161a1f;
+  --color-hairline: #1e2228;
+  --color-hairline-strong: #2b3038;
+
+  /* Text ------------------------------------------------------- */
+  --color-ink: #e9ecf1;
+  --color-ink-muted: #939aa6;
+  --color-ink-faint: #5f6772;
+
+  /* State ------------------------------------------------------ */
+  --color-critical: #f0483e;
+  --color-high: #f79009;
+  --color-medium: #e3b341;
+  --color-low: #4b8bf5;
+  --color-info: #7d8590;
+  --color-healthy: #2ea043;
+
+  /* AI activity ------------------------------------------------ */
+  --color-signal: #7c6cff;
+  --color-signal-soft: #a79aff;
+  --color-validator: #22d3ee;
+
+  --radius-card: 12px;
+
+  --animate-sweep: sweep 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+  --animate-ticker: ticker 1.1s steps(4, end) infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(220%);
+    opacity: 0;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes ticker {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75% {
+    content: '...';
+  }
+}
+
+/* ==================================================================
+   Base
+   ================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--color-hairline);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Never allow a horizontal scrollbar, on any viewport. */
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-signal) 40%, transparent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal-soft);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Scrollbars --------------------------------------------------- */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-hairline-strong) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-hairline-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #3a4049;
+    background-clip: content-box;
+  }
+}
+
+/* ==================================================================
+   Components
+   ================================================================== */
+
+@layer components {
+  .panel {
+    background-color: var(--color-panel);
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-card);
+  }
+
+  .panel-hover {
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .panel-hover:hover {
+    border-color: var(--color-hairline-strong);
+    background-color: var(--color-raised);
+  }
+
+  /* Faint technical grid used behind hero + report headers. */
+  .grid-backdrop {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-hairline) 70%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-hairline) 70%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 100%);
+  }
+
+  .hairline-x {
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--color-hairline-strong) 20%,
+      var(--color-hairline-strong) 80%,
+      transparent
+    );
+    height: 1px;
+  }
+
+  /* Thin scanning bar that runs across the repository input. */
+  .scanline::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--color-signal) 22%, transparent),
+      transparent
+    );
+    animation: var(--animate-sweep);
+    pointer-events: none;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-size: 0.8125rem;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Section eyebrow used across landing + report. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+}
+
+/* ==================================================================
+   Accessibility — honour the OS reduced-motion setting.
+   Framer Motion honours the same setting via `MotionConfig reducedMotion`
+   at the root; this is the belt-and-braces CSS half, covering plain CSS
+   animations and transitions.
+   ================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,58 @@
+name: Sentinel audit
+
+# Sentinel auditing itself on every change, and publishing the findings to
+# GitHub code scanning. This is the workflow to copy into your own repository.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Dependency advisories change without your code changing.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  audit:
+    name: Software health audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Sentinel
+        # `--fail-on critical` blocks the merge on a critical finding and
+        # nothing else; everything below that lands in code scanning where it
+        # can be triaged rather than blocking a pull request.
+        run: npm run audit -- . --sarif sentinel.sarif --json sentinel.json --fail-on critical
+        env:
+          # Optional: set these as repository secrets to add model reasoning.
+          # Without them the audit is deterministic-only and says so.
+          AI_PROVIDER: ${{ vars.SENTINEL_AI_PROVIDER }}
+          AI_MODEL: ${{ vars.SENTINEL_AI_MODEL }}
+          AI_API_KEY: ${{ secrets.SENTINEL_AI_API_KEY }}
+
+      - name: Upload to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sentinel.sarif
+          category: sentinel
+
+      - name: Keep the full report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-report
+          path: sentinel.json
+          retention-days: 30

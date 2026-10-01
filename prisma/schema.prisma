@@ -1,0 +1,193 @@
+// Sentinel data model.
+//
+// The application talks to a narrow `Store` port (src/lib/db/types.ts) with
+// two adapters: an in-process store that needs no configuration, and a
+// PostgreSQL adapter enabled by DATABASE_URL. This schema is the authoritative
+// description of the Postgres shape and is kept in step with the SQL in
+// db/migrations, which the adapter applies at boot.
+//
+// Prisma is not a runtime dependency — the adapter uses `pg` with explicit SQL
+// so the default deployment installs nothing extra. Generate a client with
+// `npx prisma generate` if you want typed access for your own tooling.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// An anonymous namespace. Created on first use from a signed cookie; no
+/// personal data is stored against it.
+model Workspace {
+  id        String   @id
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("workspaces")
+}
+
+model Repository {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  slug        String
+  owner       String
+  name        String
+  /// Full RepoMeta as returned by the GitHub API.
+  meta        Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @map("updated_at")
+
+  @@unique([workspaceId, slug])
+  @@map("repositories")
+}
+
+model Scan {
+  id            String    @id
+  workspaceId   String    @map("workspace_id")
+  repoSlug      String    @map("repo_slug")
+  repo          Json
+  /// queued | cloning | indexing | analyzing | validating | generating_report | complete | failed
+  state         String
+  /// live | demo
+  mode          String
+  progress      Float     @default(0)
+  statusMessage String    @default("") @map("status_message")
+  score         Int?
+  /// Unguessable id, present only when the author opted in to a public report.
+  shareId       String?   @unique @map("share_id")
+  error         Json?
+  agents        Json      @default("[]")
+  createdAt     DateTime  @map("created_at")
+  startedAt     DateTime? @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  durationMs    Int?      @map("duration_ms")
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([workspaceId, repoSlug, createdAt(sort: Desc)])
+  @@map("scans")
+}
+
+/// The append-only event log behind the live screen. A client reconnecting
+/// with Last-Event-ID replays from here, so a dropped connection loses nothing.
+model ScanEvent {
+  scanId  String   @map("scan_id")
+  seq     Int
+  payload Json
+  at      DateTime @default(now())
+
+  @@id([scanId, seq])
+  @@map("scan_events")
+}
+
+model AgentRun {
+  scanId       String    @map("scan_id")
+  agentId      String    @map("agent_id")
+  state        String
+  activity     String    @default("")
+  filesScanned Int       @default(0) @map("files_scanned")
+  findingCount Int       @default(0) @map("finding_count")
+  progress     Float     @default(0)
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  error        String?
+
+  @@id([scanId, agentId])
+  @@map("agent_runs")
+}
+
+/// The full report as one document. The projections below exist so findings
+/// can be queried without unpacking it.
+model Report {
+  scanId      String   @id @map("scan_id")
+  workspaceId String   @map("workspace_id")
+  repoSlug    String   @map("repo_slug")
+  mode        String
+  payload     Json
+  generatedAt DateTime @map("generated_at")
+
+  @@map("reports")
+}
+
+model Finding {
+  id         String  @map("id")
+  scanId     String  @map("scan_id")
+  ruleId     String  @map("rule_id")
+  category   String
+  /// critical | high | medium | low | info
+  severity   String
+  confidence Float
+  /// confirmed | likely | potential | dismissed
+  validation String
+  title      String
+  path       String
+  startLine  Int?    @map("start_line")
+  rootCause  String  @map("root_cause")
+  payload    Json
+
+  @@id([scanId, id])
+  @@index([scanId, severity])
+  @@index([ruleId])
+  @@map("findings")
+}
+
+/// The exchange that produced a finding's confidence, kept so a reader can
+/// disagree with the number on the same evidence.
+model Debate {
+  id        String @map("id")
+  scanId    String @map("scan_id")
+  findingId String @map("finding_id")
+  topic     String
+  payload   Json
+
+  @@id([scanId, id])
+  @@map("debates")
+}
+
+model ProjectScore {
+  scanId   String @map("scan_id")
+  category String
+  score    Int
+  weight   Float
+  findings Int    @default(0)
+
+  @@id([scanId, category])
+  @@map("project_scores")
+}
+
+model Dependency {
+  scanId    String  @map("scan_id")
+  name      String
+  ecosystem String
+  version   String
+  risk      String?
+  payload   Json
+
+  @@id([scanId, ecosystem, name])
+  @@map("dependencies")
+}
+
+model ArchitectureNode {
+  scanId  String  @map("scan_id")
+  nodeId  String  @map("node_id")
+  label   String
+  kind    String
+  risk    String?
+  payload Json
+
+  @@id([scanId, nodeId])
+  @@map("architecture_nodes")
+}
+
+model Recommendation {
+  scanId    String @map("scan_id")
+  name      String
+  ecosystem String
+  reason    String
+  payload   Json
+
+  @@id([scanId, ecosystem, name])
+  @@map("recommendations")
+}

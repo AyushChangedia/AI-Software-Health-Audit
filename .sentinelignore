@@ -1,0 +1,18 @@
+# Sentinel suppressions for this repository.
+#
+# Syntax: gitignore-style globs, optionally followed by the rule ids they
+# apply to. `!` re-includes. Suppressed findings are counted in every report.
+
+# The bundled sample repository is a deliberately vulnerable codebase stored
+# as string literals. The secret scanner and the security rules are correct to
+# flag it — these are fixtures, and Sentinel analysing them is the point.
+src/lib/demo/acme-commerce.ts
+
+# The rule definitions contain the patterns they match on, so scanning them
+# finds the detector rather than a defect.
+src/lib/analysis/rules/*.ts   sec. ai. perf. bug.
+src/lib/security/secrets.ts   sec.
+src/lib/security/advisories.ts   dep. sec.
+
+# Test fixtures deliberately contain credential-shaped and vulnerable strings.
+tests/**   sec. dep.
