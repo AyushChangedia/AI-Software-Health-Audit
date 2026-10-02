@@ -20,6 +20,15 @@ import type {
 export interface Store {
   readonly kind: 'memory' | 'postgres';
 
+  /**
+   * True when a write is visible to every other instance of the app.
+   *
+   * The in-process store is not: on a platform that runs each route as its own
+   * function, a scan written by one request is invisible to the next. Code
+   * that needs a record to survive the response has to check this.
+   */
+  readonly durable: boolean;
+
   /* Scans ---------------------------------------------------------- */
   createScan(scan: Scan): Promise<Scan>;
   getScan(id: string): Promise<Scan | null>;

@@ -167,6 +167,25 @@ report that hides how much it was told to ignore is not an honest report.
 
 The public instance runs on Vercel at **<https://ai-software-health-audit.vercel.app/>**.
 
+### Serverless with no database
+
+A serverless host runs each route as its own function with its own memory, so
+a scan written by `POST /api/scans` is invisible to the request that renders
+`/scan/<id>` a moment later. Rather than 404, Sentinel detects this and
+switches how a scan is carried:
+
+- the scan id becomes a **signed ticket** describing what to analyse, so any
+  instance can pick the work up without having seen it before;
+- the **event stream runs the analysis itself**, in the one request that can
+  deliver the result, and the finished report travels down the stream;
+- the report renders in the browser, and SARIF and JSON are built there too,
+  from the same code the API route uses.
+
+What that mode honestly cannot do is outlive the request: no history, no share
+links, and a dropped connection means running the analysis again. All three
+say so in the interface rather than failing quietly. `GET /api/health` reports
+`"ephemeral": true` when this is in effect. Set `DATABASE_URL` to turn it off.
+
 Everything is optional; `GET /api/health` reports what is on.
 
 | Variable | Unset | Set |

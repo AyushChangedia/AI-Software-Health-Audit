@@ -6,6 +6,7 @@ import type {
   AgentRun,
   Debate,
   FindingPreview,
+  Report,
   Scan,
   ScanError,
   ScanEvent,
@@ -13,7 +14,7 @@ import type {
   Severity,
   ValidationStatus,
 } from '@/types';
-import { AGENTS, WORKER_AGENT_IDS } from '@/lib/constants';
+import { AGENTS, EPHEMERAL_SCAN_PREFIX, WORKER_AGENT_IDS } from '@/lib/constants';
 
 /**
  * Live scan state, assembled from the server event stream.
@@ -52,6 +53,12 @@ export interface ScanStreamState {
   validations: ValidationEntry[];
   error: ScanError | null;
   score: number | null;
+  /**
+   * Set only when the server had nowhere durable to put the report and sent it
+   * down the stream instead. Its presence is what tells the view to render the
+   * report itself rather than asking the server to re-render the page.
+   */
+  report: Report | null;
   lastSeq: number;
 }
 
@@ -90,6 +97,7 @@ export function initialState(scan?: Scan | null): ScanStreamState {
     validations: [],
     error: scan?.error ?? null,
     score: scan?.score ?? null,
+    report: null,
     lastSeq: 0,
   };
 }
@@ -302,6 +310,7 @@ function reducer(state: ScanStreamState, action: Action): ScanStreamState {
         state: 'complete',
         progress: 1,
         score: event.score,
+        ...(event.report ? { report: event.report } : {}),
         message: 'Analysis complete',
         transport: 'closed',
       };
@@ -354,6 +363,29 @@ export function useScanStream(scanId: string, initialScan?: Scan | null) {
       pollTimer = setInterval(async () => {
         try {
           const response = await fetch(`/api/scans/${scanId}`, { cache: 'no-store' });
+          if (response.status === 404) {
+            // Terminal, not transient. Either the scan expired, or it was
+            // running in a stream that died and left nothing behind to poll.
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+            finishedRef.current = true;
+            dispatch({
+              type: 'event',
+              seq: seqRef.current + 1,
+              event: {
+                type: 'scan_failed',
+                at: new Date().toISOString(),
+                scanId,
+                error: {
+                  code: 'internal',
+                  message: 'The analysis was interrupted and its progress could not be recovered.',
+                  hint: 'Running it again takes about as long as it got.',
+                  retryable: true,
+                },
+              },
+            });
+            return;
+          }
           if (!response.ok) return;
           const body = (await response.json()) as { scan: Scan };
           dispatch({ type: 'poll', scan: body.scan });
@@ -403,6 +435,32 @@ export function useScanStream(scanId: string, initialScan?: Scan | null) {
       source.onerror = () => {
         source?.close();
         if (finishedRef.current || cancelled) return;
+
+        // An ephemeral scan has no server-side record, so reconnecting does
+        // not resume it — it starts the whole analysis again on an instance
+        // that has never seen it. Once events have arrived, a dropped stream
+        // means that work is gone, and saying so beats silently restarting a
+        // scan the user is already watching.
+        if (scanId.startsWith(EPHEMERAL_SCAN_PREFIX) && seqRef.current > 0) {
+          finishedRef.current = true;
+          dispatch({
+            type: 'event',
+            seq: seqRef.current + 1,
+            event: {
+              type: 'scan_failed',
+              at: new Date().toISOString(),
+              scanId,
+              error: {
+                code: 'internal',
+                message: 'The connection dropped and the analysis could not be resumed.',
+                hint: 'This instance has no database, so progress is held in the stream itself. Running the analysis again starts it cleanly.',
+                retryable: true,
+              },
+            },
+          });
+          return;
+        }
+
         failures += 1;
         // EventSource retries on its own, but only for transport hiccups.
         // Repeated failures mean streaming is not viable here.

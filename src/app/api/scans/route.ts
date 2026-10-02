@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { parseRepoUrl } from '@/lib/github/url';
-import { getStore } from '@/lib/db';
+import { getStore, isEphemeral } from '@/lib/db';
 import { getQueue } from '@/lib/queue';
 import { newId, randomToken } from '@/lib/id';
+import { encodeScanTicket } from '@/lib/scan-token';
 import { env } from '@/lib/env';
 import { createLogger } from '@/lib/logger';
 import { DEMO_REPO, isDemoSlug } from '@/lib/demo';
@@ -95,9 +96,33 @@ export async function POST(request: Request) {
 
     const session = await getWorkspace();
     const store = getStore();
+    const ephemeral = isEphemeral();
+
+    if (ephemeral && share) {
+      // A share link is a promise that the report will still be there later.
+      // Without a durable store it would not be, so refuse rather than mint a
+      // URL that 404s the moment this instance goes away.
+      return apiError({
+        code: 'unsupported',
+        message: 'This instance cannot publish share links.',
+        hint: 'Share links need a database — set DATABASE_URL. You can still export the finished report as JSON or SARIF.',
+        retryable: false,
+      });
+    }
+
+    // Without a durable store the id has to carry the request: the next
+    // request lands on a different instance, which has never heard of it.
+    const id = ephemeral
+      ? encodeScanTicket({
+          repo: { owner: repo.owner, name: repo.name, slug: repo.slug, url: repo.url },
+          mode,
+          workspaceId: session.id,
+          iat: Math.floor(Date.now() / 1000),
+        })
+      : newId('scn');
 
     const scan: Scan = {
-      id: newId('scn'),
+      id,
       workspaceId: session.id,
       repo,
       state: 'queued',
@@ -109,10 +134,15 @@ export async function POST(request: Request) {
       agents: [],
     };
 
-    await store.createScan(scan);
-    await getQueue().enqueue({ scanId: scan.id });
-
-    logger.info('scan.created', { scanId: scan.id, repo: repo.slug, mode });
+    if (ephemeral) {
+      // Nothing to persist and nothing to enqueue: the event stream runs the
+      // analysis itself, in the one request that can deliver the result.
+      logger.info('scan.created', { scanId: scan.id, repo: repo.slug, mode, ephemeral: true });
+    } else {
+      await store.createScan(scan);
+      await getQueue().enqueue({ scanId: scan.id });
+      logger.info('scan.created', { scanId: scan.id, repo: repo.slug, mode });
+    }
 
     const response = json({ scan }, { status: 202 });
     return withWorkspaceCookie(response, session);

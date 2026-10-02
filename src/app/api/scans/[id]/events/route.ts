@@ -1,12 +1,22 @@
 import { getStore } from '@/lib/db';
 import { replayAndSubscribe } from '@/lib/events/bus';
+import { executeScanJob } from '@/lib/queue';
 import { notFound, unexpected } from '@/lib/http/api';
 import { getWorkspace } from '@/lib/http/session';
+import { scanFromTicket } from '@/lib/scan-token';
 import { createLogger } from '@/lib/logger';
-import type { SequencedEvent } from '@/types';
+import type { ScanEvent, SequencedEvent } from '@/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+/**
+ * Serverless platforms kill a function at a fixed ceiling, and this route can
+ * be the one running the analysis rather than merely reporting on it. 60s is
+ * the ceiling the smallest Vercel plan allows; asking for more fails the
+ * deployment there, so raise it only alongside the plan.
+ */
+export const maxDuration = 60;
 
 const logger = createLogger('api:events');
 
@@ -35,10 +45,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   try {
     const { id } = await params;
     const store = getStore();
-    const scan = await store.getScan(id);
-    if (!scan) return notFound('That scan does not exist, or it has expired.');
-
     const session = await getWorkspace();
+
+    let scan = await store.getScan(id);
+
+    // Without a durable store the scan was never written down: `POST /api/scans`
+    // ran on a different instance with its own memory. A signed ticket id says
+    // what to analyse, so this request can do the work itself — and it is the
+    // only request that can, because it is the one holding the stream open.
+    let runHere = false;
+    if (!scan) {
+      const pending = scanFromTicket(id, session.id);
+      if (!pending) return notFound('That scan does not exist, or it has expired.');
+      scan = await store.createScan(pending);
+      runHere = true;
+    }
+
     if (scan.workspaceId !== session.id && !scan.shareId) {
       return notFound('That scan does not exist, or it has expired.');
     }
@@ -85,6 +107,38 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
             }, 100);
           }
         });
+
+        if (runHere) {
+          // Deliberately not awaited: the analysis publishes through the bus
+          // the subscription above is already listening to, and the response
+          // must start streaming now. The function stays alive because the
+          // stream does.
+          void executeScanJob(id).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.error('inline.failed', { scanId: id, error: message });
+            // The orchestrator reports its own failures. Reaching here means it
+            // could not, so close the stream rather than leave the client
+            // watching a spinner that will never move.
+            const failure: ScanEvent = {
+              type: 'scan_failed',
+              at: new Date().toISOString(),
+              scanId: id,
+              error: {
+                code: 'internal',
+                message: 'The analysis stopped unexpectedly.',
+                retryable: true,
+              },
+            };
+            send(`data: ${JSON.stringify(failure)}\n\n`);
+            send('event: done\ndata: {}\n\n');
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          });
+        }
 
         heartbeat = setInterval(() => send(': keep-alive\n\n'), HEARTBEAT_MS);
         heartbeat.unref?.();

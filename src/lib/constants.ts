@@ -265,3 +265,10 @@ export const METHODOLOGY_COPY =
   'The Sentinel Software Health Score is our own weighted model, not an industry standard. ' +
   'Each category starts at 100 and loses points for findings, weighted by severity and by how ' +
   'confident the validator was. Weights are configurable.';
+
+/**
+ * Marks a scan id that carries its own description instead of pointing at a
+ * stored record — see `src/lib/scan-token.ts`. The client checks for it too,
+ * which is why it lives here rather than in that server-only module.
+ */
+export const EPHEMERAL_SCAN_PREFIX = 'eph_';

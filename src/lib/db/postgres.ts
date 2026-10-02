@@ -77,6 +77,7 @@ function rowToScan(row: ScanRow): Scan {
  */
 export class PostgresStore implements Store {
   readonly kind = 'postgres' as const;
+  readonly durable = true;
   private pool: PgPool | null = null;
   private migrated: Promise<void> | null = null;
 

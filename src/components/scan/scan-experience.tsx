@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useMotionPreference } from '@/hooks/use-motion-preference';
@@ -16,6 +16,7 @@ import { AgentConstellation, AgentGrid } from './agent-constellation';
 import { ActivityConsole } from './activity-console';
 import { DebateList } from './debate-panel';
 import { ScanErrorView } from './scan-error';
+import { ReportView } from '@/components/report/report-view';
 
 const PHASE_LABEL: Record<ScanState, string> = {
   queued: 'Queued',
@@ -42,7 +43,9 @@ const PHASES: ScanState[] = [
  *
  * Reads the server event stream and reflects exactly what the orchestrator is
  * doing. When the scan finishes it plays a short completion sequence and then
- * hands over to the report, which the server renders.
+ * hands over to the report — normally re-rendered by the server, but rendered
+ * here from the stream's own payload when the deployment has no durable store
+ * and a second request would find nothing.
  */
 export function ScanExperience({ scanId, initialScan }: { scanId: string; initialScan: Scan }) {
   const router = useRouter();
@@ -54,14 +57,37 @@ export function ScanExperience({ scanId, initialScan }: { scanId: string; initia
   const validated = stream.validations.filter((v) => v.status).length;
 
   // Once the score lands, move to the full report.
+  const streamedReport = stream.report;
+  const openReport = useCallback(() => {
+    setRevealed(true);
+    // A streamed report is already in hand. Asking the server to re-render
+    // would send the browser to an instance that never saw this scan, so only
+    // do it when the report lives server-side.
+    if (!streamedReport) router.refresh();
+  }, [router, streamedReport]);
+
   useEffect(() => {
     if (stream.state !== 'complete') return;
-    const timer = setTimeout(() => {
-      setRevealed(true);
-      router.refresh();
-    }, reducedMotion ? 400 : 3_200);
+    const timer = setTimeout(openReport, reducedMotion ? 400 : 3_200);
     return () => clearTimeout(timer);
-  }, [stream.state, router, reducedMotion]);
+  }, [stream.state, reducedMotion, openReport]);
+
+  if (revealed && streamedReport) {
+    return (
+      <ReportView
+        report={streamedReport}
+        scan={{
+          ...initialScan,
+          state: 'complete',
+          progress: 1,
+          score: streamedReport.score.overall,
+          durationMs: streamedReport.durationMs,
+          finishedAt: new Date().toISOString(),
+        }}
+        ephemeral
+      />
+    );
+  }
 
   if (stream.state === 'failed' && stream.error) {
     return <ScanErrorView error={stream.error} repo={initialScan.repo} />;
@@ -167,7 +193,11 @@ export function ScanExperience({ scanId, initialScan }: { scanId: string; initia
       {/* ---------------------------------------------------------- */}
       <AnimatePresence>
         {stream.state === 'complete' && !revealed ? (
-          <CompletionSequence score={stream.score ?? 0} findings={totalFindings} />
+          <CompletionSequence
+            score={stream.score ?? 0}
+            findings={totalFindings}
+            onOpen={openReport}
+          />
         ) : null}
       </AnimatePresence>
 
@@ -334,7 +364,15 @@ function Metric({ label, value, accent }: { label: string; value: string | numbe
 /**
  * The completion moment: agents converge, the score counts up, the report opens.
  */
-function CompletionSequence({ score, findings }: { score: number; findings: number }) {
+function CompletionSequence({
+  score,
+  findings,
+  onOpen,
+}: {
+  score: number;
+  findings: number;
+  onOpen: () => void;
+}) {
   const reducedMotion = useMotionPreference();
   const [displayed, setDisplayed] = useState(reducedMotion ? score : 0);
 
@@ -399,7 +437,7 @@ function CompletionSequence({ score, findings }: { score: number; findings: numb
           transition={{ delay: 1.8 }}
           className="mt-4"
         >
-          <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+          <Button variant="outline" size="sm" onClick={onOpen}>
             Open now
           </Button>
         </motion.div>

@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import type { Finding, Report, Scan } from '@/types';
+import { toSarif } from '@/lib/export/sarif';
 import { SEVERITY_META, SEVERITIES_ORDERED } from '@/lib/constants';
 import { cn, formatDuration, formatNumber, formatRelativeTime, severityColorVar } from '@/lib/utils';
 import { Panel } from '@/components/ui/panel';
@@ -41,11 +42,18 @@ export function ReportView({
   report,
   scan,
   readOnly = false,
+  ephemeral = false,
 }: {
   report: Report;
   scan: Scan;
   /** Shared public view: no re-scan, no workspace links. */
   readOnly?: boolean;
+  /**
+   * This report exists only in the browser: the deployment has no durable
+   * store, so it arrived over the event stream and no request can fetch it
+   * back. Downloads are built client-side and share links are withheld.
+   */
+  ephemeral?: boolean;
 }) {
   const [tab, setTab] = useState('overview');
   const [rootCauseFilter, setRootCauseFilter] = useState<string | undefined>(undefined);
@@ -77,7 +85,7 @@ export function ReportView({
     <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6">
       {report.mode === 'demo' ? <DemoBanner className="mb-5" /> : null}
 
-      <ReportHeader report={report} scan={scan} readOnly={readOnly} />
+      <ReportHeader report={report} scan={scan} readOnly={readOnly} ephemeral={ephemeral} />
 
       <div className="sticky top-14 z-30 -mx-4 mb-5 border-b border-[var(--color-hairline)] bg-[color-mix(in_oklab,var(--color-canvas)_88%,transparent)] px-4 py-2 backdrop-blur-xl sm:-mx-6 sm:px-6">
         <Tabs items={tabs} value={tab} onChange={setTab} />
@@ -144,14 +152,86 @@ export function ReportView({
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * Report downloads.
+ *
+ * Normally the server renders these: it has the report and sets the filename
+ * and content type. When the report only exists in this tab — an ephemeral
+ * scan, with no store to read it back from — the same two files are built
+ * here instead, from the same `toSarif` the API route uses, so the bytes a
+ * user gets do not depend on how the deployment is configured.
+ */
+function ExportButtons({
+  report,
+  scanId,
+  ephemeral,
+}: {
+  report: Report;
+  scanId: string;
+  ephemeral: boolean;
+}) {
+  const base = `sentinel-${report.repo.owner}-${report.repo.name}`;
+
+  if (!ephemeral) {
+    return (
+      <>
+        <a href={`/api/scans/${scanId}/export?format=sarif`} download>
+          <Button variant="outline" size="sm" icon={<ShieldCheck className="size-4" aria-hidden />}>
+            SARIF
+          </Button>
+        </a>
+        <a href={`/api/scans/${scanId}/export?format=json`} download>
+          <Button variant="outline" size="sm" icon={<FileJson className="size-4" aria-hidden />}>
+            JSON
+          </Button>
+        </a>
+      </>
+    );
+  }
+
+  function save(filename: string, contentType: string, body: string) {
+    const url = URL.createObjectURL(new Blob([body], { type: contentType }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        icon={<ShieldCheck className="size-4" aria-hidden />}
+        onClick={() =>
+          save(`${base}.sarif`, 'application/sarif+json', JSON.stringify(toSarif(report), null, 2))
+        }
+      >
+        SARIF
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        icon={<FileJson className="size-4" aria-hidden />}
+        onClick={() => save(`${base}.json`, 'application/json', JSON.stringify(report, null, 2))}
+      >
+        JSON
+      </Button>
+    </>
+  );
+}
+
 function ReportHeader({
   report,
   scan,
   readOnly,
+  ephemeral,
 }: {
   report: Report;
   scan: Scan;
   readOnly: boolean;
+  ephemeral: boolean;
 }) {
   const [rescanning, setRescanning] = useState(false);
 
@@ -207,22 +287,16 @@ function ReportHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/api/scans/${scan.id}/export?format=sarif`} download>
-            <Button variant="outline" size="sm" icon={<ShieldCheck className="size-4" aria-hidden />}>
-              SARIF
-            </Button>
-          </a>
-          <a href={`/api/scans/${scan.id}/export?format=json`} download>
-            <Button variant="outline" size="sm" icon={<FileJson className="size-4" aria-hidden />}>
-              JSON
-            </Button>
-          </a>
+          <ExportButtons report={report} scanId={scan.id} ephemeral={ephemeral} />
           {!readOnly ? (
             <>
-              <ShareButton
-                scanId={scan.id}
-                {...(scan.shareId ? { initialShareId: scan.shareId } : {})}
-              />
+              {/* A share link outlives the request; an ephemeral report does not. */}
+              {!ephemeral ? (
+                <ShareButton
+                  scanId={scan.id}
+                  {...(scan.shareId ? { initialShareId: scan.shareId } : {})}
+                />
+              ) : null}
               <Button
                 variant="secondary"
                 size="sm"

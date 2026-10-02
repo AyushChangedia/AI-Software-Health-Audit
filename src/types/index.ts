@@ -290,7 +290,21 @@ export type ScanEvent =
       confidence: number;
     }
   | { type: 'log'; at: string; agentId: AgentId; message: string }
-  | { type: 'scan_complete'; at: string; scanId: string; score: number }
+  | {
+      type: 'scan_complete';
+      at: string;
+      scanId: string;
+      score: number;
+      /**
+       * The finished report, inlined.
+       *
+       * Only populated when the scan ran without a durable store, where the
+       * stream is the one and only chance to hand the report to the client —
+       * no later request can read it back. Omitted otherwise, so the event
+       * log stays small.
+       */
+      report?: Report;
+    }
   | { type: 'scan_failed'; at: string; scanId: string; error: ScanError };
 
 export type ScanEventType = ScanEvent['type'];

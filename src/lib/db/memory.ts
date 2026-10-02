@@ -32,6 +32,7 @@ interface Snapshot {
  */
 export class MemoryStore implements Store {
   readonly kind = 'memory' as const;
+  readonly durable = false;
 
   private scans = new Map<string, Scan>();
   private reports = new Map<string, Report>();

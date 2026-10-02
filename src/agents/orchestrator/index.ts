@@ -7,7 +7,7 @@ import type {
   ScanState,
 } from '@/types';
 import { AGENTS, WORKER_AGENT_IDS } from '@/lib/constants';
-import { getStore } from '@/lib/db';
+import { getStore, isEphemeral } from '@/lib/db';
 import { publish, primeSequence, closeChannel, flushEvents } from '@/lib/events/bus';
 import { getAIProvider } from '@/lib/ai';
 import { createLogger, recordScanTelemetry } from '@/lib/logger';
@@ -374,6 +374,12 @@ export async function runScan(scanId: string, options: RunScanOptions = {}): Pro
       at: new Date().toISOString(),
       scanId,
       score: report.score.overall,
+      // Where the next request lands on another instance, `saveReport` above
+      // wrote to memory nothing else can read. The stream is then the only way
+      // the report reaches the browser, so it travels with the event. On a
+      // single server the page re-renders from the store as usual, and
+      // inlining it here would needlessly bloat the event log.
+      ...(isEphemeral() ? { report: finalReport } : {}),
     });
 
     const usage = ai.usage();

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { ArrowUpRight, FolderGit2, Plus } from 'lucide-react';
-import { getStore } from '@/lib/db';
+import { getStore, isEphemeral } from '@/lib/db';
 import { getWorkspace } from '@/lib/http/session';
 import { Panel, SectionHeading } from '@/components/ui/panel';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,9 @@ export default async function DashboardPage() {
   ]);
 
   const running = scans.filter((scan) => !['complete', 'failed'].includes(scan.state));
+  // A dashboard that is permanently empty should say why, not imply the user
+  // has never run anything.
+  const ephemeral = isEphemeral();
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
@@ -40,9 +43,11 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{greeting()} 👋</h1>
           <p className="mt-2 text-[14px] text-[var(--color-ink-muted)]">
-            {repositories.length === 0
-              ? 'Nothing audited yet from this browser.'
-              : `${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} audited from this browser.`}
+            {ephemeral
+              ? 'This instance has no database, so finished reports are not kept. Analyses still run in full — they just live in the tab that requested them.'
+              : repositories.length === 0
+                ? 'Nothing audited yet from this browser.'
+                : `${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} audited from this browser.`}
           </p>
         </div>
         <Link href="/">
