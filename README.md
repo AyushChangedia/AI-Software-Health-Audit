@@ -8,6 +8,14 @@ Paste a GitHub repository. Nine specialised agents read it alongside
 deterministic security tooling, argue with each other about what they find,
 and return a report where every claim names a file, a line and a confidence.
 
+<br>
+
+[![Try Sentinel live](https://img.shields.io/badge/%E2%96%B6_TRY_IT_LIVE-ai--software--health--audit.vercel.app-7c6cff?style=for-the-badge&labelColor=08090b)](https://ai-software-health-audit.vercel.app/)
+
+## **[→ ai-software-health-audit.vercel.app](https://ai-software-health-audit.vercel.app/)**
+
+**No sign-up. No install. No API key.**
+
 </div>
 
 ---
@@ -39,6 +47,10 @@ their static paths, and the report's "What ran" panel says exactly which
 analyzers produced the findings and which were unavailable.
 
 ## Quick start
+
+**Nothing to install — the live app is at <https://ai-software-health-audit.vercel.app/>.**
+
+To run it yourself:
 
 ```bash
 npm install
@@ -153,6 +165,8 @@ report that hides how much it was told to ignore is not an honest report.
 
 ## Deployment
 
+The public instance runs on Vercel at **<https://ai-software-health-audit.vercel.app/>**.
+
 Everything is optional; `GET /api/health` reports what is on.
 
 | Variable | Unset | Set |
@@ -203,7 +217,7 @@ fallback for environments that buffer streams.
 ```bash
 npm run dev         # development server
 npm run verify      # typecheck + lint + test + build
-npm test            # 176 tests
+npm test            # 183 tests
 npm run audit -- .  # audit this repository
 ```
 
